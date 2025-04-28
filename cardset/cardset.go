@@ -20,6 +20,8 @@ type CardSet struct {
 	Index int
 }
 
+var ErrCardsetEmpty = errors.New("cardset is empty")
+
 func CreateCardSet(seed int64) *CardSet {
 	var card [52]Card
 	var suite = [4]string{"H", "S", "C", "D"}
@@ -53,6 +55,7 @@ func ParseCardByString(cardString string) (Card, error) {
 	}
 
 	return Card{Suite: cardSegments[0], Number: cardSegments[1], RandomNumber: randomNumber}, nil
+	//return Card{Suite: cardSegments[0], Number: cardSegments[1], RandomNumber: randomNumber, CipherText: nil}, nil
 }
 
 func (cs *CardSet) ShuffleCardSet() {
@@ -61,13 +64,21 @@ func (cs *CardSet) ShuffleCardSet() {
 	})
 }
 
-func (cs *CardSet) Draw() Card {
+func (cs *CardSet) Draw() (Card, error) {
 	var index = cs.Index
+	if index >= len(cs.Card) {
+		return Card{}, ErrCardsetEmpty
+	}
+
 	var card = cs.Card[index]
 	cs.Index += 1
-	return card
+	return card, nil
 }
 
 func (c *Card) ToCardString() string {
 	return c.Suite + "_" + c.Number + "_" + fmt.Sprintf("0x%016x", c.RandomNumber)
+}
+
+func (c *Card) ToCardShrtnString() string {
+	return c.Suite + "_" + c.Number
 }

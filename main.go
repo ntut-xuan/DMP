@@ -11,7 +11,7 @@ func main() {
 
 	g := game.NewGame(4)
 
-	fmt.Printf("[Game]\ntotalPlayers: %d\ncurrentScore: %d\n---\n", g.TotalPlayers, g.CurrentScore)
+	fmt.Printf("[Game]\ntotalPlayers: %d\ncurrentScore: %d\n---\n", g.TotalPlayers, g.Score)
 
 	g.PlayRound()
 }
