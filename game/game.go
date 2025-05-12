@@ -2,9 +2,11 @@ package game
 
 import (
 	"clyde1811/dmp/cardset"
+	"clyde1811/dmp/crypto"
 	"clyde1811/dmp/player"
 	"errors"
 	"fmt"
+	"math/big"
 	"os"
 	"strconv"
 )
@@ -18,11 +20,11 @@ type Game struct {
 	Winners      []player.Player
 }
 
-func (g *Game) IsEffectCard(card cardset.Card) bool {
+func (g *Game) IsEffectCard(card cardset.CardPoint) bool {
 	return card.Number == "J" || card.Number == "Q" || card.Number == "K"
 }
 
-func (g *Game) CardValue(card cardset.Card) int {
+func (g *Game) CardValue(card cardset.CardPoint) int {
 	switch card.Number {
 	case "2", "3", "4", "5", "6", "7", "8", "9":
 		// Convert the string digit to an int
@@ -39,7 +41,7 @@ func (g *Game) CardValue(card cardset.Card) int {
 	return 0
 }
 
-func (g *Game) CanPlayCard(card cardset.Card) bool {
+func (g *Game) CanPlayCard(card cardset.CardPoint) bool {
 	switch card.Number {
 	case "2", "3", "4", "5", "6", "7", "8", "9":
 		// Convert the string digit to an int
@@ -54,7 +56,7 @@ func (g *Game) CanPlayCard(card cardset.Card) bool {
 	}
 }
 
-func NewGame(numPlayers int) *Game {
+func NewGame(context crypto.CryptoContext, privKeys []*big.Int, numPlayers int) *Game {
 	// Check validity of player number
 	if numPlayers < 2 || numPlayers > 5 {
 		fmt.Println(os.Stderr, "invalid number of players")
@@ -64,18 +66,14 @@ func NewGame(numPlayers int) *Game {
 	// Generate Players
 	players := make([]player.Player, numPlayers)
 	for i := range players {
-		p, err := player.GeneratePlayer(i)
-		if err != nil {
-			fmt.Println(os.Stderr, "failed to generate player with error: ", err)
-			os.Exit(1)
-		}
+		p := player.GeneratePlayer(context, privKeys[i], i)
 
 		players[i] = p
-		fmt.Printf("Player %d: \n Private Key %s \n Public Key %s\n", i, players[i].GetPrivateKey(), players[i].GetPublicKey())
+		fmt.Printf("Player %d: \n Private Key %s \n Public Key (%s, %s)\n", i, players[i].GetPrivateKey().String(), players[i].GetPublicKey().X.String(), players[i].GetPublicKey().Y.String())
 	}
 
 	// Create game Cardset
-	cs := cardset.CreateCardSet(48763)
+	cs := cardset.CreateCardSet(context, 77149)
 
 	return &Game{
 		Players:      players,
@@ -101,26 +99,39 @@ func (g *Game) ShuffleEncrypt() error {
 	return nil
 }
 
-func (g *Game) DealDecrypt(id int) error {
+func (g *Game) DealDecrypt(context crypto.CryptoContext, id int) error {
 	/* TODO: The card on the top of Cardset is first decrypted and posted back by all the others
 	   Finally, the specified player (id) completes decryption and adds the card to their hand.
 	Here, we just draw a card to the player.
 	*/
 
 	card, err := g.Cardset.Draw()
+
 	if err != nil {
 		return err
 	}
 
-	g.Players[id].Hand = append(g.Players[id].Hand, card)
+	for _, player := range g.Players {
+		if player.Id == id {
+			continue
+		}
+		Cb := context.DecryptCard(card.Ca, card.Cb, player.PrivateKey)
+		card.Cb = Cb
+	}
+
+	searchableCard := g.Players[id].DecryptCard(context, card)
+
+	cardPoint := g.Cardset.FindCardByPoint(searchableCard.Cb)
+
+	g.Players[id].Hand = append(g.Players[id].Hand, cardPoint)
 
 	return nil
 }
 
-func (g *Game) DealCards() {
+func (g *Game) DealCards(context crypto.CryptoContext) {
 	for i := 0; i < g.TotalPlayers; i++ {
 		for j := 0; j < 5; j++ {
-			err := g.DealDecrypt(i)
+			err := g.DealDecrypt(context, i)
 			if err != nil {
 				if errors.Is(err, cardset.ErrCardsetEmpty) {
 					fmt.Println(err, ", therefore stop dealing card")
@@ -136,14 +147,14 @@ func (g *Game) DealCards() {
 
 func (g *Game) ShowCardset() {
 	fmt.Printf("[Game] Cardset:\n")
-	for i, c := range g.Cardset.Card {
+	for i, c := range g.Cardset.CardPoint {
 		fmt.Printf("%d, %s\n", i, c.ToCardString())
 	}
 
 	fmt.Println("---")
 }
 
-func (g *Game) ApplyCard(card cardset.Card, playerID int) {
+func (g *Game) ApplyCard(card cardset.CardPoint, playerID int) {
 	switch card.Number {
 	case "2", "3", "4", "5", "6", "7", "8", "9":
 		num, _ := strconv.Atoi(card.Number)
@@ -171,7 +182,7 @@ func (g *Game) Eliminate(player *player.Player) {
 	player.Active = false
 }
 
-func (g *Game) PlayRound() {
+func (g *Game) PlayRound(context crypto.CryptoContext) {
 	// Shuffle and encrypt by each player
 	for i := 0; i < g.TotalPlayers; i++ {
 		err := g.ShuffleEncrypt()
@@ -181,7 +192,7 @@ func (g *Game) PlayRound() {
 	}
 
 	// Deal 5 cards for each player
-	g.DealCards()
+	g.DealCards(context)
 
 	// Print
 	g.ShowCardset()
@@ -225,7 +236,7 @@ func (g *Game) PlayRound() {
 		g.ApplyCard(choosed, currentPlayer.Id)
 
 		// Draw a card if deck is not empty
-		err := g.DealDecrypt(currentPlayer.Id)
+		err := g.DealDecrypt(context, currentPlayer.Id)
 		if err != nil {
 			if errors.Is(err, cardset.ErrCardsetEmpty) {
 				// do nothing

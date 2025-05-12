@@ -28,7 +28,7 @@ type CardSet struct {
 
 var ErrCardsetEmpty = errors.New("cardset is empty")
 
-func CreateCardSet(seed int64, context crypto.CryptoContext) *CardSet {
+func CreateCardSet(context crypto.CryptoContext, seed int64) *CardSet {
 	var cardPoint [52]CardPoint
 	var card [52]Card
 	var suite = [4]string{"H", "S", "C", "D"}
@@ -84,6 +84,15 @@ func (cs *CardSet) Draw() (Card, error) {
 	var card = cs.Card[index]
 	cs.Index += 1
 	return card, nil
+}
+
+func (cs *CardSet) FindCardByPoint(Cb crypto.CurvePoint) CardPoint {
+	for i := range 52 {
+		if cs.CardPoint[i].Point.X.Cmp(Cb.X) == 0 && cs.CardPoint[i].Point.Y.Cmp(Cb.Y) == 0 {
+			return cs.CardPoint[i]
+		}
+	}
+	return CardPoint{}
 }
 
 func (c *CardPoint) ToCardString() string {

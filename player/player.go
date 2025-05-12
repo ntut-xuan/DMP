@@ -2,7 +2,9 @@ package player
 
 import (
 	"clyde1811/dmp/cardset"
+	"clyde1811/dmp/crypto"
 	"fmt"
+	"math/big"
 	"math/rand"
 
 	eciesgo "github.com/ecies/go/v2"
@@ -10,17 +12,17 @@ import (
 
 type Player struct {
 	Id         int
-	Hand       []cardset.Card
+	Hand       []cardset.CardPoint
 	Points     int
 	Active     bool
-	PublicKey  *eciesgo.PublicKey
-	PrivateKey *eciesgo.PrivateKey
+	PublicKey  crypto.CurvePoint
+	PrivateKey *big.Int
 }
 
 type GameInfo interface {
-	CanPlayCard(card cardset.Card) bool
-	IsEffectCard(card cardset.Card) bool
-	CardValue(card cardset.Card) int
+	CanPlayCard(card cardset.CardPoint) bool
+	IsEffectCard(card cardset.CardPoint) bool
+	CardValue(card cardset.CardPoint) int
 }
 
 func GenerateAsymmetricKey() (*eciesgo.PublicKey, *eciesgo.PrivateKey, error) {
@@ -34,45 +36,36 @@ func GenerateAsymmetricKey() (*eciesgo.PublicKey, *eciesgo.PrivateKey, error) {
 
 }
 
-func GeneratePlayer(id int) (Player, error) {
-	publicKey, privateKey, err := GenerateAsymmetricKey()
+func GeneratePlayer(context crypto.CryptoContext, privKey *big.Int, id int) Player {
+	publicKey := context.GeneratePublicKey(privKey)
 
-	if err != nil {
-		return Player{}, err
-	}
-
-	return Player{id, []cardset.Card{}, 0, true, publicKey, privateKey}, err
+	return Player{id, []cardset.CardPoint{}, 0, true, publicKey, privKey}
 }
 
-func (p *Player) GetPublicKey() string {
-	return p.PublicKey.Hex(true)
+func (p *Player) GetPublicKey() crypto.CurvePoint {
+	return p.PublicKey
 }
 
-func (p *Player) GetPrivateKey() string {
-	return p.PrivateKey.Hex()
+func (p *Player) GetPrivateKey() *big.Int {
+	return p.PrivateKey
 }
 
-func EncryptCard(cardPlainText []byte, publicKey *eciesgo.PublicKey) ([]byte, error) {
-	ciphertext, err := eciesgo.Encrypt(publicKey, cardPlainText)
-
-	return ciphertext, err
+func (p *Player) EncryptCard(context crypto.CryptoContext, cardset cardset.CardSet, r *big.Int) {
+	cardset.RemaskAllCard(context, r)
 }
 
-func DecryptCard(cardCipherText []byte, privateKey *eciesgo.PrivateKey) ([]byte, error) {
-	plaintext, err := eciesgo.Decrypt(privateKey, cardCipherText)
+func (p *Player) DecryptCard(context crypto.CryptoContext, card cardset.Card) cardset.Card {
+	Cb := context.DecryptCard(card.Ca, card.Cb, p.PrivateKey)
+	card.Cb = Cb
 
-	if err != nil {
-		return []byte{}, err
-	}
-
-	return plaintext, err
-}
-
-func (p *Player) EstablishCard(card cardset.Card) cardset.Card {
 	return card
 }
 
-func (p *Player) ChooseCard(g GameInfo) (cardset.Card, int) {
+func (p *Player) EstablishCard(card cardset.Card, cardset cardset.CardSet) cardset.CardPoint {
+	return cardset.FindCardByPoint(card.Cb)
+}
+
+func (p *Player) ChooseCard(g GameInfo) (cardset.CardPoint, int) {
 	playable := []int{}
 	for i, card := range p.Hand {
 		if g.CanPlayCard(card) { // Valid card
@@ -82,7 +75,7 @@ func (p *Player) ChooseCard(g GameInfo) (cardset.Card, int) {
 
 	// Check if there is a card can be give out
 	if len(playable) == 0 {
-		return cardset.Card{}, -1
+		return cardset.CardPoint{}, -1
 	}
 
 	// Strategy:
